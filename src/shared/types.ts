@@ -16,7 +16,7 @@ export const CreateClientSchema = ClientSchema.omit({ id: true, user_id: true })
 export const AppointmentSchema = z.object({
   id: z.number().optional(),
   user_id: z.string(),
-  client_name: z.string().min(1, "Nome do cliente é obrigatório"),
+  client_id: z.number().min(1, "Cliente é obrigatório"),
   service: z.string().min(1, "Serviço é obrigatório"),
   price: z.number().positive("Preço deve ser positivo"),
   professional: z.string().min(1, "Profissional é obrigatório"),

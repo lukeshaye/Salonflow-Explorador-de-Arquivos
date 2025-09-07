@@ -5,11 +5,11 @@ import { useSupabaseAuth } from '../auth/SupabaseAuthProvider'; // 1. Usar o nos
 import { supabase } from '../supabaseClient'; // 2. Importar o cliente Supabase
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { Calendar, Edit, Trash2, MessageCircle, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { Calendar as BigCalendar, momentLocalizer, View, Views } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import type { AppointmentType } from '../../shared/types'; // Ajuste o caminho se necessário
+import type { AppointmentType, ClientType } from '../../shared/types'; // Ajuste o caminho se necessário
 import { CreateAppointmentSchema } from '../../shared/types'; // Ajuste o caminho se necessário
 
 // --- Configuração e Tipos ---
@@ -17,7 +17,7 @@ moment.locale('pt');
 const localizer = momentLocalizer(moment);
 
 interface AppointmentFormData {
-  client_name: string;
+  client_id: number;
   service: string;
   price: number;
   professional: string;
@@ -41,8 +41,12 @@ export default function Appointments() {
 
   // --- Estados do Componente ---
   const [appointments, setAppointments] = useState<AppointmentType[]>([]);
+  const [clients, setClients] = useState<ClientType[]>([]); // Para a lista de clientes
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null); // Para feedback de erros ao utilizador
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false); // Controla a visibilidade da modal de exclusão
+  const [appointmentToDelete, setAppointmentToDelete] = useState<number | null>(null); // Armazena o ID do agendamento a ser excluído
   const [editingAppointment, setEditingAppointment] = useState<AppointmentType | null>(null);
   const [view, setView] = useState<View>(Views.WEEK);
   const [date, setDate] = useState(new Date());
@@ -60,7 +64,29 @@ export default function Appointments() {
   // --- Efeito para Carregar os Dados ---
   useEffect(() => {
     if (user) {
-      fetchAppointments();
+      const fetchData = async () => {
+        setLoading(true);
+        setError(null); // Limpar erros anteriores a cada novo carregamento
+        try {
+          // Executar ambas as queries em paralelo
+          const [appointmentsResponse, clientsResponse] = await Promise.all([
+            supabase.from('appointments').select('*').eq('user_id', user.id),
+            supabase.from('clients').select('id, name').eq('user_id', user.id)
+          ]);
+
+          if (appointmentsResponse.error) throw appointmentsResponse.error;
+          if (clientsResponse.error) throw clientsResponse.error;
+
+          setAppointments(appointmentsResponse.data || []);
+          setClients(clientsResponse.data || []);
+        } catch (err: any) {
+          console.error('Erro ao carregar dados:', err.message);
+          setError("Ocorreu uma falha ao carregar os dados. Por favor, tente novamente mais tarde.");
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchData();
     }
   }, [user]);
 
@@ -70,6 +96,7 @@ export default function Appointments() {
   const fetchAppointments = async () => {
     if (!user) return;
     setLoading(true);
+    setError(null);
     try {
       const { data, error } = await supabase
         .from('appointments')
@@ -81,6 +108,7 @@ export default function Appointments() {
       if (data) setAppointments(data);
     } catch (error) {
       console.error('Erro ao carregar agendamentos:', (error as Error).message);
+      setError("Erro ao carregar agendamentos. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -92,9 +120,11 @@ export default function Appointments() {
   const onSubmit = async (data: AppointmentFormData) => {
     if (!user) return;
 
+    setError(null); // Limpar erros anteriores
     const appointmentData = {
       ...data,
-      price: Math.round(Number(data.price) * 100), // Converte para cêntimos
+      price: Math.round(Number(data.price) * 100), // Conversão segura para cêntimos
+      client_id: data.client_id, // Já é um número
       is_confirmed: data.is_confirmed ?? false,
     };
 
@@ -119,26 +149,41 @@ export default function Appointments() {
       handleCloseModal();
     } catch (error) {
       console.error('Erro ao salvar agendamento:', (error as Error).message);
+      setError("Não foi possível salvar o agendamento. Tente novamente.");
     }
   };
 
   /**
    * 6. Lógica para apagar um agendamento.
    */
-  const handleDeleteAppointment = async (appointmentId: number) => {
-    if (!user || !window.confirm('Tem certeza que deseja excluir este agendamento?')) return;
+  const requestDeleteAppointment = (appointmentId: number) => {
+    setAppointmentToDelete(appointmentId);
+    setIsConfirmModalOpen(true);
+    setError(null); // Limpar erros antigos
+  };
+
+  const handleDeleteAppointment = async () => {
+    if (!user || appointmentToDelete === null) return;
 
     try {
       const { error } = await supabase
         .from('appointments')
         .delete()
-        .eq('id', appointmentId)
+        .eq('id', appointmentToDelete)
         .eq('user_id', user.id);
 
       if (error) throw error;
-      await fetchAppointments();
-    } catch (error) {
-      console.error('Erro ao excluir agendamento:', (error as Error).message);
+
+      // Atualização otimista: remove o agendamento da UI imediatamente
+      setAppointments((prev: AppointmentType[]) => prev.filter((app: AppointmentType) => app.id !== appointmentToDelete));
+      setIsConfirmModalOpen(false); // Fecha a modal
+
+    } catch (err: any) {
+      console.error('Erro ao excluir:', err.message);
+      setError("Não foi possível excluir o agendamento. Tente novamente.");
+    } finally {
+      // Limpa o estado independentemente do resultado
+      setAppointmentToDelete(null);
     }
   };
 
@@ -165,9 +210,9 @@ export default function Appointments() {
     const appointmentDate = new Date(appointment.appointment_date);
     
     reset({
-      client_name: appointment.client_name,
+      client_id: appointment.client_id, // Usar o ID do cliente
       service: appointment.service,
-      price: appointment.price / 100,
+      price: appointment.price / 100, // Converter cêntimos para euros
       professional: appointment.professional,
       appointment_date: moment(appointmentDate).format('YYYY-MM-DDTHH:mm'),
       is_confirmed: appointment.is_confirmed,
@@ -176,13 +221,19 @@ export default function Appointments() {
   };
 
   // --- Conversão de dados para o formato do Calendário ---
-  const calendarEvents: CalendarEvent[] = appointments.map((appointment) => {
+  const calendarEvents: CalendarEvent[] = appointments.map((appointment: AppointmentType) => {
+    // Encontra o cliente correspondente no estado 'clients'
+    const client = clients.find((c: ClientType) => c.id === appointment.client_id);
+    
+    // Cria um título descritivo. Usa um fallback caso o cliente não seja encontrado.
+    const title = `${client ? client.name : 'Cliente desconhecido'} - ${appointment.service}`;
+
     const start = new Date(appointment.appointment_date);
-    const end = moment(start).add(1, 'hours').toDate(); // Assumir duração de 1 hora
+    const end = moment(start).add(1, 'hours').toDate(); // Manter a duração padrão de 1 hora
     
     return {
       id: appointment.id!,
-      title: `${appointment.client_name} - ${appointment.service}`,
+      title: title,
       start,
       end,
       resource: appointment,
@@ -203,6 +254,13 @@ export default function Appointments() {
 
   return (
     <Layout>
+      {/* Exibição de Erro Global */}
+      {error && (
+        <div className="mb-4 p-4 bg-red-100 border-l-4 border-red-500 text-red-700">
+          <p className="font-bold">Erro</p>
+          <p>{error}</p>
+        </div>
+      )}
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="sm:flex sm:items-center">
           <div className="sm:flex-auto">
@@ -269,9 +327,20 @@ export default function Appointments() {
                     </div>
                     <div className="space-y-4">
                       <div>
-                        <label htmlFor="client_name" className="block text-sm font-medium text-gray-700">Nome do Cliente *</label>
-                        <input type="text" {...register('client_name')} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm" />
-                        {errors.client_name && <p className="mt-1 text-sm text-red-600">{errors.client_name.message}</p>}
+                        <label htmlFor="client_id" className="block text-sm font-medium text-gray-700">Cliente *</label>
+                        <select
+                          {...register('client_id', { valueAsNumber: true })}
+                          id="client_id"
+                          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                        >
+                          <option value="">Selecione um cliente</option>
+                          {clients.map((client) => (
+                            <option key={client.id} value={client.id}>
+                              {client.name}
+                            </option>
+                          ))}
+                        </select>
+                        {errors.client_id && <p className="mt-1 text-sm text-red-600">{errors.client_id.message}</p>}
                       </div>
                       <div>
                         <label htmlFor="service" className="block text-sm font-medium text-gray-700">Serviço *</label>
@@ -310,6 +379,36 @@ export default function Appointments() {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Confirmação de Exclusão */}
+        {isConfirmModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+              <h3 className="text-xl font-bold text-gray-900">Confirmar Exclusão</h3>
+              <p className="mt-2 text-sm text-gray-600">
+                Tem a certeza de que deseja excluir este agendamento? Esta ação não pode ser revertida.
+              </p>
+              
+              {/* Exibição de Erro na Modal */}
+              {error && <div className="mt-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">{error}</div>}
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button 
+                  onClick={() => setIsConfirmModalOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleDeleteAppointment} 
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
+                >
+                  Excluir
+                </button>
               </div>
             </div>
           </div>
