@@ -1,13 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-// --- Variáveis de Ambiente ---
-// É uma boa prática armazenar estas chaves em variáveis de ambiente
-// (ex: .env.local) para maior segurança, mas para este projeto,
-// vamos mantê-las aqui para simplicidade.
-// Elas são encontradas em: Project Settings > API no seu dashboard do Supabase.
+// Lê as variáveis de ambiente de forma segura
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const supabaseUrl = 'https://tuotvaxancyrxeqljqjs.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR1b3R2YXhhbmN5cnhlcWxqcWpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTcyMjEsImV4cCI6MjA3MjY3MzIyMX0.2t2eSZ1-T1BVBffafCwSnHsNSERkcsZYN9FpqGbrWPI';
+// Validação para garantir que as variáveis foram carregadas
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("Supabase URL e Anon Key não foram encontradas. Verifique o seu arquivo .env");
+}
 
 /**
  * Cria e exporta a instância do cliente Supabase.
