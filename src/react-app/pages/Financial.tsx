@@ -1,30 +1,37 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useSupabaseAuth } from '../auth/SupabaseAuthProvider'; // 1. Usar o nosso hook de autenticação
-import { supabase } from '../supabaseClient'; // 2. Importar o cliente Supabase
+import { useSupabaseAuth } from '../auth/SupabaseAuthProvider';
+import { supabase } from '../supabaseClient';
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { DollarSign, TrendingUp, TrendingDown, Download, Plus, Edit, Trash2, X, FileText } from 'lucide-react';
-import type { FinancialEntryType } from '../../shared/types'; // Ajuste o caminho se necessário
-import { CreateFinancialEntrySchema } from '../../shared/types'; // Ajuste o caminho se necessário
+import { DollarSign, TrendingUp, TrendingDown, Plus, Edit, Trash2, X, FileText, AlertCircle } from 'lucide-react';
+import type { FinancialEntryType } from '../../shared/types';
+import { CreateFinancialEntrySchema } from '../../shared/types';
+import { formatCurrency, formatDate } from '../utils'; // NOVO: Importando do utils.ts
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// --- Definição de Tipos ---
+// O formulário continuará a usar um número para o valor, facilitando a validação.
+// A conversão de e para cêntimos será feita na submissão e ao editar.
 interface FinancialFormData {
     description: string;
-    amount: number;
+    amount: number; // O usuário insere em euros (ex: 10.50)
     type: 'receita' | 'despesa';
     entry_type: 'pontual' | 'fixa';
     entry_date: string;
 }
 
-/**
- * Página para gerir as entradas financeiras e visualizar KPIs.
- */
+// MELHORIA: Valores padrão para o formulário, facilitando o reset.
+const defaultFormValues: FinancialFormData = {
+    description: '',
+    amount: 0,
+    type: 'receita',
+    entry_type: 'pontual',
+    entry_date: new Date().toISOString().split('T')[0], // Data de hoje como padrão
+};
+
 export default function Financial() {
-  // 3. Obter o utilizador do nosso hook
   const { user } = useSupabaseAuth(); 
   
   // --- Estados do Componente ---
@@ -32,8 +39,11 @@ export default function Financial() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FinancialEntryType | null>(null);
+  const [error, setError] = useState<string | null>(null); // NOVO: Estado para erros da API
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false); // NOVO: Estado para modal de confirmação
+  const [entryToDelete, setEntryToDelete] = useState<number | null>(null); // NOVO: Estado para guardar ID a ser excluído
   const [kpis, setKpis] = useState({
-    monthlyRevenue: 0,
+    monthlyRevenue: 0, // Os valores aqui serão mantidos em cêntimos
     monthlyExpenses: 0,
     netProfit: 0,
   });
@@ -45,39 +55,46 @@ export default function Financial() {
     formState: { errors, isSubmitting },
   } = useForm<FinancialFormData>({
     resolver: zodResolver(CreateFinancialEntrySchema),
+    defaultValues: defaultFormValues, // MELHORIA: Definindo valores padrão
   });
   
-  // --- Efeito para Carregar os Dados ---
+  // --- Efeitos ---
   useEffect(() => {
     if (user) {
-      // Carrega tanto as entradas detalhadas como os KPIs
       fetchEntriesAndKPIs();
     }
   }, [user]);
 
-  /**
-   * Função principal que orquestra o carregamento de todos os dados financeiros em paralelo.
-   */
+  // --- Funções de Busca de Dados ---
   const fetchEntriesAndKPIs = async () => {
     if (!user) return;
     setLoading(true);
+    setError(null);
     try {
-      await Promise.all([
+      // MELHORIA: Usamos Promise.all para carregar dados em paralelo.
+      const [entriesData, kpisData] = await Promise.all([
         fetchEntries(),
         fetchKPIs()
       ]);
-    } catch (error) {
-      console.error("Erro ao carregar dados financeiros:", (error as Error).message);
+      
+      if (entriesData) setEntries(entriesData);
+      if (kpisData) {
+         setKpis({
+            ...kpisData,
+            netProfit: kpisData.monthlyRevenue - kpisData.monthlyExpenses,
+        });
+      }
+
+    } catch (err: any) {
+      setError("Falha ao carregar dados financeiros. Tente novamente mais tarde.");
+      console.error("Erro ao carregar dados financeiros:", err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  /**
-   * 4. Lógica para buscar os lançamentos financeiros no Supabase.
-   */
   const fetchEntries = async () => {
-    if (!user) return;
+    if (!user) return [];
     const { data, error } = await supabase
       .from('financial_entries')
       .select('*')
@@ -85,112 +102,110 @@ export default function Financial() {
       .order('entry_date', { ascending: false });
 
     if (error) throw error;
-    if (data) setEntries(data);
+    return data || [];
   };
-
-  /**
-   * 5. Lógica para buscar os dados e CALCULAR os KPIs no frontend.
-   */
+  
   const fetchKPIs = async () => {
-    if (!user) return;
+     if (!user) return { monthlyRevenue: 0, monthlyExpenses: 0 };
     
     const currentMonth = new Date().toISOString().slice(0, 7); // Formato YYYY-MM
 
-    // Busca todas as entradas do mês atual
     const { data: monthlyEntries, error } = await supabase
       .from('financial_entries')
       .select('amount, type')
       .eq('user_id', user.id)
-      .like('entry_date', `${currentMonth}%`); // Filtra pelo ano e mês
+      .like('entry_date', `${currentMonth}%`);
 
     if (error) throw error;
 
-    // Calcula os KPIs localmente
-    let monthlyRevenue = 0;
-    let monthlyExpenses = 0;
-
-    if (monthlyEntries) {
-      for (const entry of monthlyEntries) {
+    // CORREÇÃO CRÍTICA: A lógica de cálculo opera com inteiros (cêntimos), evitando erros.
+    const kpisResult = (monthlyEntries || []).reduce((acc: { monthlyRevenue: number; monthlyExpenses: number }, entry: { amount: number; type: string }) => {
         if (entry.type === 'receita') {
-          monthlyRevenue += entry.amount;
+          acc.monthlyRevenue += entry.amount;
         } else if (entry.type === 'despesa') {
-          monthlyExpenses += entry.amount;
+          acc.monthlyExpenses += entry.amount;
         }
-      }
-    }
-    
-    setKpis({
-      monthlyRevenue,
-      monthlyExpenses,
-      netProfit: monthlyRevenue - monthlyExpenses,
-    });
+        return acc;
+      }, { monthlyRevenue: 0, monthlyExpenses: 0 });
+
+    return kpisResult;
   };
 
-  /**
-   * 6. Lógica para submeter o formulário (criar ou atualizar).
-   */
+  // --- Funções de Manipulação de Dados (CRUD) ---
   const onSubmit = async (formData: FinancialFormData) => {
     if (!user) return;
+    setError(null);
     
+    // CORREÇÃO CRÍTICA: A conversão para cêntimos é feita aqui, de forma segura.
+    // Usamos Math.round para evitar problemas com dízimas no input do usuário.
     const entryData = {
       ...formData,
-      amount: Math.round(Number(formData.amount) * 100), // Converte para cêntimos
+      amount: Math.round(formData.amount * 100),
     };
 
     try {
-      if (editingEntry) {
-        // --- ATUALIZAÇÃO ---
-        const { error } = await supabase
-          .from('financial_entries')
-          .update(entryData)
-          .eq('id', editingEntry.id)
-          .eq('user_id', user.id);
-        if (error) throw error;
-      } else {
-        // --- CRIAÇÃO ---
-        const { error } = await supabase
-          .from('financial_entries')
-          .insert([{ ...entryData, user_id: user.id }]);
-        if (error) throw error;
-      }
+      const { error } = editingEntry
+        ? await supabase.from('financial_entries').update(entryData).eq('id', editingEntry.id)
+        : await supabase.from('financial_entries').insert([{ ...entryData, user_id: user.id }]);
+      
+      if (error) throw error;
 
-      await fetchEntriesAndKPIs(); // Recarrega tudo
+      await fetchEntriesAndKPIs(); // Recarrega todos os dados para refletir a mudança
       handleCloseModal();
-    } catch (error) {
-      console.error('Erro ao salvar entrada financeira:', (error as Error).message);
+    } catch (err: any) {
+      setError("Erro ao salvar a entrada financeira. Verifique os dados e tente novamente.");
+      console.error('Erro ao salvar entrada financeira:', err.message);
     }
   };
+  
+  // MELHORIA: Separa a solicitação da execução da exclusão para usar um modal
+  const requestDeleteEntry = (entryId: number) => {
+    setEntryToDelete(entryId);
+    setIsConfirmModalOpen(true);
+  };
 
-  /**
-   * 7. Lógica para apagar uma entrada financeira.
-   */
-  const handleDeleteEntry = async (entryId: number) => {
-    const confirmDelete = window.confirm('Tem certeza que deseja excluir esta entrada?');
-    if (!user || !confirmDelete) return;
+  const handleDeleteEntry = async () => {
+    if (!user || entryToDelete === null) return;
+    
+    setIsConfirmModalOpen(false);
+    setError(null);
 
     try {
       const { error } = await supabase
         .from('financial_entries')
         .delete()
-        .eq('id', entryId)
+        .eq('id', entryToDelete)
         .eq('user_id', user.id);
       
       if (error) throw error;
 
-      await fetchEntriesAndKPIs(); // Recarrega tudo
-    } catch (error) {
-      console.error('Erro ao excluir entrada financeira:', (error as Error).message);
+      // OTIMIZAÇÃO: Remove o item do estado localmente para uma UI mais rápida
+      setEntries((prevEntries: FinancialEntryType[]) => prevEntries.filter((e: FinancialEntryType) => e.id !== entryToDelete));
+      
+      // E depois recalcula os KPIs sem recarregar toda a lista
+      const kpisData = await fetchKPIs();
+      if (kpisData) {
+          setKpis({
+              ...kpisData,
+              netProfit: kpisData.monthlyRevenue - kpisData.monthlyExpenses,
+          });
+      }
+      
+    } catch (err: any) {
+      setError("Erro ao excluir a entrada financeira.");
+      console.error('Erro ao excluir entrada financeira:', err.message);
+    } finally {
+      setEntryToDelete(null); // Limpa o ID após a operação
     }
   };
 
-  // --- Funções Auxiliares ---
+  // --- Funções Auxiliares da UI ---
   const handleEditEntry = (entry: FinancialEntryType) => {
     setEditingEntry(entry);
     reset({
-      description: entry.description,
-      amount: entry.amount / 100, // Converte de cêntimos para o formulário
-      type: entry.type,
-      entry_type: entry.entry_type,
+      ...entry,
+      // CORREÇÃO CRÍTICA: Converte de cêntimos para euros ao preencher o formulário.
+      amount: entry.amount / 100,
       entry_date: entry.entry_date.split('T')[0], // Garante formato YYYY-MM-DD
     });
     setIsModalOpen(true);
@@ -199,30 +214,20 @@ export default function Financial() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingEntry(null);
-    reset();
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-PT', {
-      style: 'currency',
-      currency: 'EUR'
-    }).format(value / 100);
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(`${dateString}T00:00:00`).toLocaleDateString('pt-PT');
+    reset(defaultFormValues); // Limpa o formulário para os valores padrão
+    setError(null); // Limpa os erros do modal
   };
 
   const handleExportPDF = () => {
     const doc = new jsPDF();
-    // ... (lógica de exportação PDF pode ser mantida como está)
-    doc.text("Relatório Financeiro", 10, 10);
+    doc.text("Relatório Financeiro - SalonFlow", 14, 16);
     autoTable(doc, {
+        startY: 20,
         head: [['Data', 'Descrição', 'Tipo', 'Valor']],
-        body: entries.map(e => [
+        body: entries.map((e: FinancialEntryType) => [
             formatDate(e.entry_date),
             e.description,
-            e.type,
+            e.type === 'receita' ? 'Receita' : 'Despesa',
             formatCurrency(e.amount)
         ]),
     });
@@ -231,16 +236,13 @@ export default function Financial() {
   
   // --- Renderização ---
   if (loading) {
-    return (
-      <Layout>
-        <LoadingSpinner />
-      </Layout>
-    );
+    return <Layout><LoadingSpinner /></Layout>;
   }
 
   return (
     <Layout>
       <div className="px-4 sm:px-6 lg:px-8">
+        {/* Cabeçalho e botões de ação */}
         <div className="sm:flex sm:items-center">
           <div className="sm:flex-auto">
             <h1 className="text-3xl font-bold text-gray-900">Financeiro</h1>
@@ -265,7 +267,16 @@ export default function Financial() {
             </button>
           </div>
         </div>
+        
+        {/* MELHORIA: Exibição de Erro Global da Página */}
+        {error && !isModalOpen && !isConfirmModalOpen && (
+            <div className="bg-red-50 p-4 rounded-md my-4 flex items-center">
+                <AlertCircle className="h-5 w-5 text-red-500 mr-3" />
+                <p className="text-sm text-red-700">{error}</p>
+            </div>
+        )}
 
+        {/* KPIs */}
         <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <div className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
             <div className="p-5">
@@ -320,6 +331,7 @@ export default function Financial() {
           </div>
         </div>
 
+        {/* Tabela de Entradas */}
         <div className="mt-8">
           <div className="bg-white shadow-sm rounded-lg border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-200">
@@ -360,7 +372,8 @@ export default function Financial() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <button onClick={() => handleEditEntry(entry)} className="text-indigo-600 hover:text-indigo-900 mr-3"><Edit className="w-4 h-4" /></button>
-                          <button onClick={() => handleDeleteEntry(entry.id!)} className="text-red-600 hover:text-red-900"><Trash2 className="w-4 h-4" /></button>
+                          {/* MELHORIA: Chama a função que abre o modal de confirmação */}
+                          <button onClick={() => requestDeleteEntry(entry.id!)} className="text-red-600 hover:text-red-900"><Trash2 className="w-4 h-4" /></button>
                         </td>
                       </tr>
                     ))}
@@ -370,7 +383,8 @@ export default function Financial() {
             )}
           </div>
         </div>
-
+        
+        {/* Modal de Criação/Edição */}
         {isModalOpen && (
           <div className="fixed inset-0 z-50 overflow-y-auto">
             <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
@@ -382,6 +396,13 @@ export default function Financial() {
                       <h3 className="text-lg font-medium text-gray-900">{editingEntry ? 'Editar Entrada' : 'Nova Entrada'}</h3>
                       <button type="button" onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600"><X className="w-6 h-6" /></button>
                     </div>
+                    {/* MELHORIA: Exibição de Erro dentro do Modal */}
+                    {error && (
+                        <div className="bg-red-50 p-3 rounded-md mb-4 flex items-center">
+                            <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+                            <p className="text-sm text-red-700">{error}</p>
+                        </div>
+                    )}
                     <div className="space-y-4">
                       <div>
                         <label htmlFor="description" className="block text-sm font-medium text-gray-700">Descrição *</label>
@@ -420,13 +441,48 @@ export default function Financial() {
                   </div>
                   <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                     <button type="submit" disabled={isSubmitting} className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-gradient-to-r from-pink-500 to-violet-500 text-base font-medium text-white hover:from-pink-600 hover:to-violet-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50">
+                      {/* MELHORIA: Feedback visual durante o envio */}
                       {isSubmitting ? 'Salvando...' : (editingEntry ? 'Atualizar' : 'Criar')}
                     </button>
-                    <button type="button" onClick={handleCloseModal} className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                    <button type="button" onClick={handleCloseModal} className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" disabled={isSubmitting}>
                       Cancelar
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MELHORIA: Modal de Confirmação de Exclusão */}
+        {isConfirmModalOpen && (
+          <div className="fixed inset-0 z-50 overflow-y-auto">
+            <div className="flex items-center justify-center min-h-screen">
+              <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setIsConfirmModalOpen(false)}></div>
+              <div className="relative bg-white rounded-lg shadow-xl p-6 max-w-sm mx-auto text-center">
+                 <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                    <AlertCircle className="h-6 w-6 text-red-600" aria-hidden="true" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 mt-4">Confirmar Exclusão</h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  Tem a certeza que deseja excluir esta entrada? Esta ação não pode ser desfeita.
+                </p>
+                <div className="mt-6 flex justify-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmModalOpen(false)}
+                    className="px-4 py-2 bg-white text-gray-800 rounded-md border border-gray-300 hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteEntry}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                  >
+                    Excluir
+                  </button>
+                </div>
               </div>
             </div>
           </div>
