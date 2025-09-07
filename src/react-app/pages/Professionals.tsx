@@ -5,6 +5,8 @@ import { useSupabaseAuth } from '../auth/SupabaseAuthProvider';
 import { useAppStore } from '../../shared/store';
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ConfirmationModal from '../components/ConfirmationModal';
+import { useToastHelpers } from '../contexts/ToastContext';
 import { Users, Plus, Edit, Trash2, X } from 'lucide-react';
 import type { ProfessionalType } from '../../shared/types';
 import { CreateProfessionalSchema } from '../../shared/types';
@@ -23,9 +25,13 @@ export default function Professionals() {
     updateProfessional, 
     deleteProfessional 
   } = useAppStore();
+  const { showSuccess, showError } = useToastHelpers();
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProfessional, setEditingProfessional] = useState<ProfessionalType | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [professionalToDelete, setProfessionalToDelete] = useState<ProfessionalType | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const {
     register,
@@ -47,22 +53,43 @@ export default function Professionals() {
     try {
       if (editingProfessional) {
         await updateProfessional({ ...editingProfessional, ...formData });
+        showSuccess('Profissional atualizado!', 'As alterações foram salvas com sucesso.');
       } else {
         await addProfessional(formData, user.id);
+        showSuccess('Profissional adicionado!', 'O novo profissional foi adicionado à sua equipa.');
       }
       handleCloseModal();
     } catch (error) {
       console.error('Erro ao salvar profissional:', (error as Error).message);
+      showError('Erro ao salvar profissional', 'Tente novamente ou contacte o suporte se o problema persistir.');
     }
   };
 
-  const handleDeleteProfessional = async (professionalId: number) => {
-    if (!user || !window.confirm('Tem certeza que deseja excluir este profissional?')) return;
+  const handleDeleteClick = (professional: ProfessionalType) => {
+    setProfessionalToDelete(professional);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!user || !professionalToDelete) return;
+    
+    setIsDeleting(true);
     try {
-      await deleteProfessional(professionalId);
+      await deleteProfessional(professionalToDelete.id!);
+      showSuccess('Profissional removido!', 'O profissional foi removido da sua equipa.');
+      setIsDeleteModalOpen(false);
+      setProfessionalToDelete(null);
     } catch (error) {
       console.error('Erro ao excluir profissional:', (error as Error).message);
+      showError('Erro ao remover profissional', 'Tente novamente ou contacte o suporte se o problema persistir.');
+    } finally {
+      setIsDeleting(false);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setIsDeleteModalOpen(false);
+    setProfessionalToDelete(null);
   };
 
   const handleEditProfessional = (professional: ProfessionalType) => {
@@ -121,7 +148,7 @@ export default function Professionals() {
                         <button onClick={() => handleEditProfessional(professional)} className="text-indigo-600 hover:text-indigo-900 mr-4">
                           <Edit className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDeleteProfessional(professional.id!)} className="text-red-600 hover:text-red-900">
+                        <button onClick={() => handleDeleteClick(professional)} className="text-red-600 hover:text-red-900">
                            <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
@@ -169,6 +196,19 @@ export default function Professionals() {
             </div>
           </div>
         )}
+
+        {/* Modal de Confirmação de Exclusão */}
+        <ConfirmationModal
+          isOpen={isDeleteModalOpen}
+          onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          title="Excluir Profissional"
+          message={`Tem certeza que deseja excluir o profissional "${professionalToDelete?.name}"? Esta ação não pode ser desfeita.`}
+          confirmText="Excluir"
+          cancelText="Cancelar"
+          variant="danger"
+          isLoading={isDeleting}
+        />
       </div>
     </Layout>
   );

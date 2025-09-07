@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSupabaseAuth } from '../auth/SupabaseAuthProvider'; // 1. Mudar para o nosso hook do Supabase
 import { supabase } from '../supabaseClient'; // 2. Importar o cliente Supabase para o logout
 import {
@@ -91,23 +91,19 @@ export default function Layout({ children }: LayoutProps) {
                 {navigation.map((item) => {
                   const isActive = location.pathname === item.href;
                   return (
-                    <a
+                    <Link
                       key={item.name}
-                      href={item.href}
+                      to={item.href}
                       className={`group flex items-center px-2 py-2 text-base font-medium rounded-md transition-colors ${
                         isActive
                           ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white'
                           : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                       }`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate(item.href);
-                        setSidebarOpen(false);
-                      }}
+                      onClick={() => setSidebarOpen(false)}
                     >
                       <item.icon className={`mr-4 h-6 w-6 flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400'}`} />
                       {item.name}
-                    </a>
+                    </Link>
                   );
                 })}
               </nav>
@@ -155,22 +151,18 @@ export default function Layout({ children }: LayoutProps) {
               {navigation.map((item) => {
                 const isActive = location.pathname === item.href;
                 return (
-                  <a
+                  <Link
                     key={item.name}
-                    href={item.href}
+                    to={item.href}
                     className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${
                       isActive
                         ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigate(item.href);
-                    }}
                   >
                     <item.icon className={`mr-3 h-6 w-6 flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400'}`} />
                     {item.name}
-                  </a>
+                  </Link>
                 );
               })}
             </nav>

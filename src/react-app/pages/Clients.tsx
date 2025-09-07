@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useSupabaseAuth } from '../auth/SupabaseAuthProvider'; // 1. Usar o nosso hook de autenticação
-import { supabase } from '../supabaseClient'; // 2. Importar o cliente Supabase
+import { useSupabaseAuth } from '../auth/SupabaseAuthProvider';
+import { useAppStore } from '../../shared/store';
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ConfirmationModal from '../components/ConfirmationModal';
+import { useToastHelpers } from '../contexts/ToastContext';
 import { Users, Plus, Edit, Trash2, Phone, Mail, MessageCircle, X } from 'lucide-react';
-import type { ClientType } from '../../shared/types'; // Ajuste o caminho se necessário
-import { CreateClientSchema } from '../../shared/types'; // Ajuste o caminho se necessário
+import type { ClientType } from '../../shared/types';
+import { CreateClientSchema } from '../../shared/types';
 
 // --- Definição de Tipos ---
 interface ClientFormData {
@@ -21,14 +23,22 @@ interface ClientFormData {
  * Página para gerir os clientes (Criar, Ler, Atualizar, Apagar).
  */
 export default function Clients() {
-  // 3. Obter o utilizador do nosso hook
-  const { user } = useSupabaseAuth(); 
+  const { user } = useSupabaseAuth();
+  const { 
+    clients, 
+    loading, 
+    fetchClients, 
+    addClient, 
+    updateClient, 
+    deleteClient 
+  } = useAppStore();
+  const { showSuccess, showError } = useToastHelpers();
   
-  // --- Estados do Componente ---
-  const [clients, setClients] = useState<ClientType[]>([]);
-  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientType | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [clientToDelete, setClientToDelete] = useState<ClientType | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const {
     register,
@@ -39,95 +49,54 @@ export default function Clients() {
     resolver: zodResolver(CreateClientSchema),
   });
 
-  // --- Efeito para Carregar os Dados ---
-  // Este efeito é acionado assim que o componente é montado e o `user` está disponível.
   useEffect(() => {
     if (user) {
-      fetchClients();
+      fetchClients(user.id);
     }
-  }, [user]);
+  }, [user, fetchClients]);
 
-  /**
-   * 4. Lógica para buscar os clientes no Supabase.
-   */
-  const fetchClients = async () => {
-    if (!user) return; // Salvaguarda para garantir que o utilizador existe.
-    
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('clients') // Nome da tabela no Supabase
-        .select('*') // Seleciona todas as colunas
-        .eq('user_id', user.id) // **IMPORTANTE**: Filtra os dados apenas para o utilizador atual
-        .order('name', { ascending: true }); // Ordena por nome
-
-      if (error) {
-        throw error; // Lança um erro se a consulta falhar
-      }
-
-      if (data) {
-        setClients(data); // Atualiza o estado com os clientes encontrados
-      }
-    } catch (error) {
-      console.error('Erro ao carregar clientes:', (error as Error).message);
-    } finally {
-      setLoading(false); // Garante que o loading termina, mesmo com erro
-    }
-  };
-
-  /**
-   * 5. Lógica para submeter o formulário (criar ou atualizar um cliente).
-   */
   const onSubmit = async (formData: ClientFormData) => {
     if (!user) return;
-
     try {
       if (editingClient) {
-        // --- LÓGICA DE ATUALIZAÇÃO ---
-        const { error } = await supabase
-          .from('clients')
-          .update(formData)
-          .eq('id', editingClient.id) // Condição para saber qual cliente atualizar
-          .eq('user_id', user.id); // Segurança adicional
-
-        if (error) throw error;
+        await updateClient({ ...editingClient, ...formData });
+        showSuccess('Cliente atualizado!', 'As alterações foram salvas com sucesso.');
       } else {
-        // --- LÓGICA DE CRIAÇÃO ---
-        const { error } = await supabase
-          .from('clients')
-          .insert([{ ...formData, user_id: user.id }]); // Adiciona o user_id ao novo registo
-
-        if (error) throw error;
+        await addClient(formData, user.id);
+        showSuccess('Cliente adicionado!', 'O novo cliente foi adicionado à sua base de dados.');
       }
-
-      await fetchClients(); // Recarrega a lista de clientes para mostrar as alterações
-      handleCloseModal(); // Fecha o modal
+      handleCloseModal();
     } catch (error) {
       console.error('Erro ao salvar cliente:', (error as Error).message);
+      showError('Erro ao salvar cliente', 'Tente novamente ou contacte o suporte se o problema persistir.');
     }
   };
 
-  /**
-   * 6. Lógica para apagar um cliente.
-   */
-  const handleDeleteClient = async (clientId: number) => {
-    // Usamos um modal customizado ou uma lógica diferente em vez do `window.confirm`
-    const confirmDelete = window.confirm('Tem certeza que deseja excluir este cliente? Esta ação não pode ser desfeita.');
-    if (!user || !confirmDelete) return;
+  const handleDeleteClick = (client: ClientType) => {
+    setClientToDelete(client);
+    setIsDeleteModalOpen(true);
+  };
 
+  const handleDeleteConfirm = async () => {
+    if (!user || !clientToDelete) return;
+    
+    setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from('clients')
-        .delete()
-        .eq('id', clientId) // Condição para saber qual cliente apagar
-        .eq('user_id', user.id); // Segurança adicional
-
-      if (error) throw error;
-
-      await fetchClients(); // Recarrega a lista
+      await deleteClient(clientToDelete.id!);
+      showSuccess('Cliente removido!', 'O cliente foi removido da sua base de dados.');
+      setIsDeleteModalOpen(false);
+      setClientToDelete(null);
     } catch (error) {
       console.error('Erro ao excluir cliente:', (error as Error).message);
+      showError('Erro ao remover cliente', 'Tente novamente ou contacte o suporte se o problema persistir.');
+    } finally {
+      setIsDeleting(false);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setIsDeleteModalOpen(false);
+    setClientToDelete(null);
   };
   
   // --- Funções Auxiliares (sem grandes alterações) ---
@@ -156,13 +125,8 @@ export default function Clients() {
     window.open(whatsappUrl, '_blank');
   };
 
-  // --- Renderização ---
-  if (loading) {
-    return (
-      <Layout>
-        <LoadingSpinner />
-      </Layout>
-    );
+  if (loading.clients) {
+    return <Layout><LoadingSpinner /></Layout>;
   }
 
   // O JSX abaixo permanece praticamente idêntico, pois a lógica de UI não mudou.
@@ -257,7 +221,7 @@ export default function Clients() {
                     </button>
                     
                     <button
-                      onClick={() => handleDeleteClient(client.id!)}
+                      onClick={() => handleDeleteClick(client)}
                       className="flex-1 inline-flex items-center justify-center px-3 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                     >
                       <Trash2 className="w-4 h-4 mr-1" />
@@ -374,6 +338,19 @@ export default function Clients() {
             </div>
           </div>
         )}
+
+        {/* Modal de Confirmação de Exclusão */}
+        <ConfirmationModal
+          isOpen={isDeleteModalOpen}
+          onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          title="Excluir Cliente"
+          message={`Tem certeza que deseja excluir o cliente "${clientToDelete?.name}"? Esta ação não pode ser desfeita.`}
+          confirmText="Excluir"
+          cancelText="Cancelar"
+          variant="danger"
+          isLoading={isDeleting}
+        />
       </div>
     </Layout>
   );

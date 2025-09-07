@@ -1,14 +1,16 @@
-import { useState, useEffect, useMemo } from 'react'; // Adicionar useMemo
+import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useSupabaseAuth } from '../auth/SupabaseAuthProvider';
-import { supabase } from '../supabaseClient';
+import { useAppStore } from '../../shared/store';
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { Package, Plus, Edit, Trash2, AlertTriangle, X, Search, XCircle } from 'lucide-react'; // Adicionar ícones
+import ConfirmationModal from '../components/ConfirmationModal';
+import { useToastHelpers } from '../contexts/ToastContext';
+import { Package, Plus, Edit, Trash2, AlertTriangle, X, Search, XCircle } from 'lucide-react';
 import type { ProductType } from '../../shared/types';
 import { CreateProductSchema } from '../../shared/types';
-import { formatCurrency } from '../utils'; // IMPORTAR de utils.ts
+import { formatCurrency } from '../utils';
 
 // --- Definição de Tipos ---
 interface ProductFormData {
@@ -32,17 +34,23 @@ const defaultFormValues: ProductFormData = {
  * Página para gerir os produtos do catálogo.
  */
 export default function Products() {
-  const { user } = useSupabaseAuth(); 
+  const { user } = useSupabaseAuth();
+  const { 
+    products, 
+    loading, 
+    fetchProducts, 
+    addProduct, 
+    updateProduct, 
+    deleteProduct 
+  } = useAppStore();
+  const { showSuccess, showError } = useToastHelpers();
   
-  // --- Estados do Componente ---
-  const [products, setProducts] = useState<ProductType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null); // NOVO: Estado para erros
-  const [searchTerm, setSearchTerm] = useState(''); // NOVO: Estado para a busca
+  const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductType | null>(null);
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false); // NOVO: Estado para modal de confirmação
-  const [productToDelete, setProductToDelete] = useState<number | null>(null); // NOVO: Estado para guardar ID do produto a ser excluído
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<ProductType | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const {
     register,
@@ -54,14 +62,12 @@ export default function Products() {
     defaultValues: defaultFormValues, // MELHORIA: Definindo valores padrão
   });
 
-  // --- Efeito para Carregar os Dados ---
   useEffect(() => {
     if (user) {
-      fetchProducts();
+      fetchProducts(user.id);
     }
-  }, [user]);
+  }, [user, fetchProducts]);
 
-  // --- Lógica de Filtragem Otimizada com useMemo ---
   const filteredProducts = useMemo(() => {
     if (!searchTerm) {
       return products;
@@ -73,41 +79,9 @@ export default function Products() {
     );
   }, [products, searchTerm]);
 
-  /**
-   * Lógica para buscar os produtos no Supabase.
-   */
-  const fetchProducts = async () => {
-    if (!user) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-
-      if (data) {
-        setProducts(data);
-      }
-    } catch (err: any) {
-      setError("Falha ao carregar produtos. Tente novamente mais tarde.");
-      console.error('Erro ao carregar produtos:', err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Lógica para submeter o formulário (criar ou atualizar um produto).
-   */
   const onSubmit = async (formData: ProductFormData) => {
     if (!user) return;
-    setError(null);
 
-    // **IMPORTANTE**: Converter o preço de euros para cêntimos antes de guardar na BD
     const productData = {
       ...formData,
       price: Math.round(Number(formData.price) * 100),
@@ -115,66 +89,47 @@ export default function Products() {
 
     try {
       if (editingProduct) {
-        // --- LÓGICA DE ATUALIZAÇÃO ---
-        const { error } = await supabase
-          .from('products')
-          .update(productData)
-          .eq('id', editingProduct.id)
-          .eq('user_id', user.id);
-
-        if (error) throw error;
+        await updateProduct({ ...editingProduct, ...productData });
+        showSuccess('Produto atualizado!', 'As alterações foram salvas com sucesso.');
       } else {
-        // --- LÓGICA DE CRIAÇÃO ---
-        const { error } = await supabase
-          .from('products')
-          .insert([{ ...productData, user_id: user.id }]);
-
-        if (error) throw error;
+        await addProduct(productData, user.id);
+        showSuccess('Produto adicionado!', 'O novo produto foi adicionado ao seu catálogo.');
       }
-
-      await fetchProducts();
       handleCloseModal();
-    } catch (err: any) {
-      setError("Erro ao salvar o produto. Verifique os dados e tente novamente.");
-      console.error('Erro ao salvar produto:', err.message);
+    } catch (error) {
+      console.error('Erro ao salvar produto:', (error as Error).message);
+      showError('Erro ao salvar produto', 'Tente novamente ou contacte o suporte se o problema persistir.');
     }
   };
 
   /**
    * Lógica de exclusão refatorada com modal e atualização otimista
    */
-  const requestDeleteProduct = (productId: number) => {
-    setProductToDelete(productId);
-    setIsConfirmModalOpen(true);
+  const handleDeleteClick = (product: ProductType) => {
+    setProductToDelete(product);
+    setIsDeleteModalOpen(true);
   };
 
-  const handleDeleteProduct = async () => {
-    if (!user || productToDelete === null) return;
-
-    const originalProducts = [...products]; // Salva o estado original para rollback
-    const productId = productToDelete;
-
-    // Atualização Otimista: remove o item da UI imediatamente
-    setProducts((prevProducts: ProductType[]) => prevProducts.filter((p: ProductType) => p.id !== productId));
-    setIsConfirmModalOpen(false);
-    setError(null);
-
+  const handleDeleteConfirm = async () => {
+    if (!user || !productToDelete) return;
+    
+    setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', productId)
-        .eq('user_id', user.id);
-
-      if (error) throw error; // Se houver erro, o catch será acionado
-
-    } catch (err: any) {
-      setError("Erro ao excluir o produto. A operação foi desfeita.");
-      setProducts(originalProducts); // Rollback: restaura a lista de produtos
-      console.error('Erro ao excluir produto:', err.message);
+      await deleteProduct(productToDelete.id!);
+      showSuccess('Produto removido!', 'O produto foi removido do seu catálogo.');
+      setIsDeleteModalOpen(false);
+      setProductToDelete(null);
+    } catch (error) {
+      console.error('Erro ao excluir produto:', (error as Error).message);
+      showError('Erro ao remover produto', 'Tente novamente ou contacte o suporte se o problema persistir.');
     } finally {
-      setProductToDelete(null); // Limpa o ID
+      setIsDeleting(false);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setIsDeleteModalOpen(false);
+    setProductToDelete(null);
   };
   
   // --- Funções Auxiliares ---
@@ -193,19 +148,13 @@ export default function Products() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingProduct(null);
-    reset(defaultFormValues); // Limpa o formulário para os valores padrão
-    setError(null); // Limpa os erros do modal
+    reset(defaultFormValues);
   };
 
   const isLowStock = (quantity: number | null | undefined) => (quantity ?? 0) <= 5;
 
-  // --- Renderização ---
-  if (loading) {
-    return (
-      <Layout>
-        <LoadingSpinner />
-      </Layout>
-    );
+  if (loading.products) {
+    return <Layout><LoadingSpinner /></Layout>;
   }
 
   return (
@@ -244,18 +193,6 @@ export default function Products() {
           </div>
         </div>
 
-        {error && (
-          <div className="mt-4 bg-red-50 p-4 rounded-lg flex items-start text-red-700">
-            <XCircle className="h-5 w-5 mr-3 flex-shrink-0" />
-            <div>
-              <h3 className="font-semibold">Ocorreu um erro</h3>
-              <p className="text-sm">{error}</p>
-            </div>
-            <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        )}
 
         <div className="mt-8">
           {filteredProducts.length === 0 ? (
@@ -337,7 +274,7 @@ export default function Products() {
                     </button>
                     
                     <button
-                      onClick={() => requestDeleteProduct(product.id!)}
+                      onClick={() => handleDeleteClick(product)}
                       className="flex-1 inline-flex items-center justify-center px-3 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                     >
                       <Trash2 className="w-4 h-4 mr-1" />
@@ -372,13 +309,6 @@ export default function Products() {
                       </button>
                     </div>
 
-                    {/* MELHORIA: Exibição de Erro dentro do Modal */}
-                    {error && (
-                      <div className="bg-red-50 p-3 rounded-md mb-4 flex items-center">
-                        <XCircle className="h-5 w-5 text-red-500 mr-2" />
-                        <p className="text-sm text-red-700">{error}</p>
-                      </div>
-                    )}
 
                     <div className="space-y-4">
                       <div>
@@ -469,31 +399,18 @@ export default function Products() {
           </div>
         )}
 
-        {/* NOVO: Modal de Confirmação de Exclusão */}
-        {isConfirmModalOpen && (
-          <div className="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-              <h3 className="text-lg font-bold text-gray-900">Confirmar Exclusão</h3>
-              <p className="mt-2 text-sm text-gray-600">
-                Tem certeza de que deseja excluir este produto? Esta ação não pode ser desfeita.
-              </p>
-              <div className="mt-6 flex justify-end gap-3">
-                <button
-                  onClick={() => setIsConfirmModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleDeleteProduct}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
-                >
-                  Excluir
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Modal de Confirmação de Exclusão */}
+        <ConfirmationModal
+          isOpen={isDeleteModalOpen}
+          onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          title="Excluir Produto"
+          message={`Tem certeza que deseja excluir o produto "${productToDelete?.name}"? Esta ação não pode ser desfeita.`}
+          confirmText="Excluir"
+          cancelText="Cancelar"
+          variant="danger"
+          isLoading={isDeleting}
+        />
       </div>
     </Layout>
   );
