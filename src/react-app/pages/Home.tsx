@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useSupabaseAuth } from "../auth/SupabaseAuthProvider";
 import { supabase } from "../supabaseClient";
@@ -49,13 +49,6 @@ export default function HomePage() {
     }
   };
 
-  useEffect(() => {
-    // Adiciona a fonte Inter, caso ainda não esteja presente
-    const link = document.createElement('link');
-    link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap';
-    link.rel = 'stylesheet';
-    document.head.appendChild(link);
-  }, []);
 
   if (authLoading) {
     return <LoadingSpinner />;
