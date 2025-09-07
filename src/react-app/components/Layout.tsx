@@ -8,6 +8,7 @@ import {
   DollarSign,
   Package,
   Users,
+  Briefcase,
   Settings,
   Menu,
   X,
@@ -27,6 +28,7 @@ const navigation = [
   { name: 'Financeiro', href: '/financial', icon: DollarSign },
   { name: 'Produtos', href: '/products', icon: Package },
   { name: 'Clientes', href: '/clients', icon: Users },
+  { name: 'Profissionais', href: '/professionals', icon: Briefcase },
   { name: 'Configurações', href: '/settings', icon: Settings },
 ];
 

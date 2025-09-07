@@ -13,6 +13,7 @@ const AppointmentsPage = lazy(() => import("./pages/Appointments"));
 const FinancialPage = lazy(() => import("./pages/Financial"));
 const ProductsPage = lazy(() => import("./pages/Products"));
 const ClientsPage = lazy(() => import("./pages/Clients"));
+const ProfessionalsPage = lazy(() => import("./pages/Professionals"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
 
 function AppRoutes() {
@@ -59,6 +60,13 @@ function AppRoutes() {
           <ProtectedRoute>
             <Suspense fallback={<LoadingSpinner />}>
               <ClientsPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/professionals" element={
+          <ProtectedRoute>
+            <Suspense fallback={<LoadingSpinner />}>
+              <ProfessionalsPage />
             </Suspense>
           </ProtectedRoute>
         } />

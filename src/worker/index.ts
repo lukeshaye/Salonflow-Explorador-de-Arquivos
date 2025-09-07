@@ -16,7 +16,8 @@ import {
   CreateClientSchema,
   CreateAppointmentSchema,
   CreateFinancialEntrySchema,
-  CreateProductSchema
+  CreateProductSchema,
+  CreateProfessionalSchema
 } from '../shared/types';
 
 // --- Schemas de Validação Locais ---
@@ -258,6 +259,56 @@ app.delete("/api/products/:id", authMiddleware, async (c) => {
     if (!user) return c.json({ error: "Unauthorized" }, 401);
     const productId = c.req.param('id');
     await c.env.DB.prepare(`DELETE FROM products WHERE id = ? AND user_id = ?`).bind(productId, user.id).run();
+    return c.json({ success: true });
+});
+
+
+// --- Rotas de Profissionais (NOVO) ---
+app.get("/api/professionals", authMiddleware, async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    const professionals = await c.env.DB.prepare(`SELECT * FROM professionals WHERE user_id = ? ORDER BY name ASC`).bind(user.id).all();
+    return c.json(professionals.results);
+});
+
+app.post(
+  "/api/professionals",
+  authMiddleware,
+  zValidator('json', CreateProfessionalSchema),
+  async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    const validatedData = c.req.valid('json');
+    const result = await c.env.DB.prepare(`
+      INSERT INTO professionals (user_id, name)
+      VALUES (?, ?)
+    `).bind(user.id, validatedData.name).run();
+    return c.json({ id: result.meta.last_row_id }, 201);
+  }
+);
+
+app.put(
+  "/api/professionals/:id",
+  authMiddleware,
+  zValidator('json', CreateProfessionalSchema),
+  async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    const professionalId = c.req.param('id');
+    const validatedData = c.req.valid('json');
+    await c.env.DB.prepare(`
+      UPDATE professionals SET name = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND user_id = ?
+    `).bind(validatedData.name, professionalId, user.id).run();
+    return c.json({ success: true });
+  }
+);
+
+app.delete("/api/professionals/:id", authMiddleware, async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    const professionalId = c.req.param('id');
+    await c.env.DB.prepare(`DELETE FROM professionals WHERE id = ? AND user_id = ?`).bind(professionalId, user.id).run();
     return c.json({ success: true });
 });
 

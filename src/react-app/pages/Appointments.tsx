@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useSupabaseAuth } from '../auth/SupabaseAuthProvider'; // 1. Usar o nosso hook de autenticação
-import { supabase } from '../supabaseClient'; // 2. Importar o cliente Supabase
+import { useAppStore } from '../../shared/store'; // Importar a store global
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Plus, X } from 'lucide-react';
@@ -38,11 +38,22 @@ interface CalendarEvent {
  */
 export default function Appointments() {
   const { user } = useSupabaseAuth(); // 3. Obter o utilizador do nosso hook
+  
+  // Usar a store global
+  const { 
+    appointments, 
+    clients, 
+    professionals, 
+    loading, 
+    fetchAppointments, 
+    fetchClients, 
+    fetchProfessionals,
+    addAppointment,
+    updateAppointment,
+    deleteAppointment
+  } = useAppStore();
 
   // --- Estados do Componente ---
-  const [appointments, setAppointments] = useState<AppointmentType[]>([]);
-  const [clients, setClients] = useState<ClientType[]>([]); // Para a lista de clientes
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null); // Para feedback de erros ao utilizador
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false); // Controla a visibilidade da modal de exclusão
@@ -65,54 +76,23 @@ export default function Appointments() {
   useEffect(() => {
     if (user) {
       const fetchData = async () => {
-        setLoading(true);
         setError(null); // Limpar erros anteriores a cada novo carregamento
         try {
-          // Executar ambas as queries em paralelo
-          const [appointmentsResponse, clientsResponse] = await Promise.all([
-            supabase.from('appointments').select('*').eq('user_id', user.id),
-            supabase.from('clients').select('id, name').eq('user_id', user.id)
+          // Executar todas as queries em paralelo usando a store
+          await Promise.all([
+            fetchAppointments(user.id),
+            fetchClients(user.id),
+            fetchProfessionals(user.id)
           ]);
-
-          if (appointmentsResponse.error) throw appointmentsResponse.error;
-          if (clientsResponse.error) throw clientsResponse.error;
-
-          setAppointments(appointmentsResponse.data || []);
-          setClients(clientsResponse.data || []);
         } catch (err: any) {
           console.error('Erro ao carregar dados:', err.message);
           setError("Ocorreu uma falha ao carregar os dados. Por favor, tente novamente mais tarde.");
-        } finally {
-          setLoading(false);
         }
       };
       fetchData();
     }
-  }, [user]);
+  }, [user, fetchAppointments, fetchClients, fetchProfessionals]);
 
-  /**
-   * 4. Lógica para buscar os agendamentos no Supabase.
-   */
-  const fetchAppointments = async () => {
-    if (!user) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('appointment_date', { ascending: true });
-
-      if (error) throw error;
-      if (data) setAppointments(data);
-    } catch (error) {
-      console.error('Erro ao carregar agendamentos:', (error as Error).message);
-      setError("Erro ao carregar agendamentos. Tente novamente.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   /**
    * 5. Lógica para submeter o formulário (criar ou atualizar).
@@ -131,21 +111,12 @@ export default function Appointments() {
     try {
       if (editingAppointment) {
         // --- ATUALIZAÇÃO ---
-        const { error } = await supabase
-          .from('appointments')
-          .update(appointmentData)
-          .eq('id', editingAppointment.id)
-          .eq('user_id', user.id);
-        if (error) throw error;
+        await updateAppointment({ ...editingAppointment, ...appointmentData });
       } else {
         // --- CRIAÇÃO ---
-        const { error } = await supabase
-          .from('appointments')
-          .insert([{ ...appointmentData, user_id: user.id }]);
-        if (error) throw error;
+        await addAppointment(appointmentData, user.id);
       }
 
-      await fetchAppointments();
       handleCloseModal();
     } catch (error) {
       console.error('Erro ao salvar agendamento:', (error as Error).message);
@@ -166,18 +137,8 @@ export default function Appointments() {
     if (!user || appointmentToDelete === null) return;
 
     try {
-      const { error } = await supabase
-        .from('appointments')
-        .delete()
-        .eq('id', appointmentToDelete)
-        .eq('user_id', user.id);
-
-      if (error) throw error;
-
-      // Atualização otimista: remove o agendamento da UI imediatamente
-      setAppointments((prev: AppointmentType[]) => prev.filter((app: AppointmentType) => app.id !== appointmentToDelete));
+      await deleteAppointment(appointmentToDelete);
       setIsConfirmModalOpen(false); // Fecha a modal
-
     } catch (err: any) {
       console.error('Erro ao excluir:', err.message);
       setError("Não foi possível excluir o agendamento. Tente novamente.");
@@ -248,7 +209,7 @@ export default function Appointments() {
   };
 
   // --- Renderização ---
-  if (loading) {
+  if (loading.appointments || loading.clients || loading.professionals) {
     return <Layout><LoadingSpinner /></Layout>;
   }
 
@@ -355,7 +316,17 @@ export default function Appointments() {
                         </div>
                         <div>
                           <label htmlFor="professional" className="block text-sm font-medium text-gray-700">Profissional *</label>
-                          <input type="text" {...register('professional')} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm" />
+                          <select
+                            {...register('professional')}
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+                          >
+                            <option value="">Selecione um profissional</option>
+                            {professionals.map((professional) => (
+                              <option key={professional.id} value={professional.name}>
+                                {professional.name}
+                              </option>
+                            ))}
+                          </select>
                           {errors.professional && <p className="mt-1 text-sm text-red-600">{errors.professional.message}</p>}
                         </div>
                       </div>
