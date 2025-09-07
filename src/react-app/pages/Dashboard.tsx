@@ -5,6 +5,7 @@ import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Calendar, DollarSign, TrendingUp, MessageCircle } from 'lucide-react';
 import type { AppointmentType } from '../../shared/types'; // Ajuste o caminho se necessário
+import moment from 'moment'; // CORREÇÃO: Importar o moment para lidar com datas
 
 // --- Definição de Tipos para os dados do Dashboard ---
 interface DashboardKPIs {
@@ -87,7 +88,8 @@ export default function Dashboard() {
   const fetchKPIs = async (): Promise<DashboardKPIs> => {
     if (!user) return { dailyEarnings: 0, dailyAppointments: 0, avgTicket: 0 };
 
-    const today = new Date().toISOString().split('T')[0]; // Formato YYYY-MM-DD
+    // CORREÇÃO: Usa moment() para obter a data local do usuário, evitando problemas de fuso horário.
+    const today = moment().format('YYYY-MM-DD');
 
     // Busca agendamentos de hoje para calcular tudo a partir deles
     const { data: appointmentsToday, error } = await supabase
@@ -107,7 +109,8 @@ export default function Dashboard() {
 
   const fetchTodayAppointments = async (): Promise<AppointmentType[] | null> => {
      if (!user) return null;
-     const today = new Date().toISOString().split('T')[0];
+     // CORREÇÃO: Usa moment() para obter a data local do usuário.
+     const today = moment().format('YYYY-MM-DD');
      const { data, error } = await supabase
         .from('appointments')
         .select('*')
@@ -120,7 +123,8 @@ export default function Dashboard() {
 
   const fetchWeeklyEarnings = async (): Promise<WeeklyEarning[] | null> => {
     if (!user) return null;
-    const sevenDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // CORREÇÃO: Usa moment() para calcular a data de 7 dias atrás corretamente.
+    const sevenDaysAgo = moment().subtract(6, 'days').format('YYYY-MM-DD');
     
     const { data, error } = await supabase
       .from('financial_entries')
@@ -143,7 +147,8 @@ export default function Dashboard() {
   
   const fetchPopularServices = async (): Promise<ServicePopularity[] | null> => {
       if(!user) return null;
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      // CORREÇÃO: Usa moment() para calcular a data de 30 dias atrás corretamente.
+      const thirtyDaysAgo = moment().subtract(30, 'days').format('YYYY-MM-DD');
       
       const { data, error } = await supabase
         .from('appointments')
@@ -167,7 +172,8 @@ export default function Dashboard() {
 
   const fetchProfessionalPerformance = async (): Promise<ProfessionalPerformance[] | null> => {
       if(!user) return null;
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      // CORREÇÃO: Usa moment() para calcular a data de 30 dias atrás corretamente.
+      const thirtyDaysAgo = moment().subtract(30, 'days').format('YYYY-MM-DD');
       
       const { data, error } = await supabase
         .from('appointments')
