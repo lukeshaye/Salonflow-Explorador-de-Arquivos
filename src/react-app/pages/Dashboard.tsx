@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useSupabaseAuth } from '../auth/SupabaseAuthProvider'; // 1. Usar o nosso hook de autenticação
-import { supabase } from '../supabaseClient'; // 2. Importar o cliente Supabase
+import { useSupabaseAuth } from '../auth/SupabaseAuthProvider';
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Calendar, DollarSign, TrendingUp, MessageCircle } from 'lucide-react';
-import type { AppointmentType } from '../../shared/types'; // Ajuste o caminho se necessário
-import moment from 'moment'; // CORREÇÃO: Importar o moment para lidar com datas
+import type { AppointmentType, ServicePopularity, ProfessionalPerformance } from '../../shared/types';
+import moment from 'moment';
+import { useAppStore } from '../../shared/store'; // 1. Importar o useAppStore
 
 // --- Definição de Tipos para os dados do Dashboard ---
 interface DashboardKPIs {
@@ -17,27 +17,21 @@ interface WeeklyEarning {
   entry_date: string;
   earnings: number;
 }
-interface ServicePopularity {
-  service: string;
-  count: number;
-}
-interface ProfessionalPerformance {
-  professional: string;
-  count: number;
-}
 
 /**
  * Página principal que mostra uma visão geral do negócio.
  */
 export default function Dashboard() {
-  const { user } = useSupabaseAuth(); // Obter utilizador
-  
+  const { user } = useSupabaseAuth();
+  const { clients } = useAppStore(); // 2. Obter a lista de clientes do estado global
+
   // --- Estados do Componente ---
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
   const [todayAppointments, setTodayAppointments] = useState<AppointmentType[]>([]);
   const [weeklyEarnings, setWeeklyEarnings] = useState<WeeklyEarning[]>([]);
-  const [popularServices, setPopularServices] = useState<ServicePopularity[]>([]);
-  const [professionalPerformance, setProfessionalPerformance] = useState<ProfessionalPerformance[]>([]);
+  // 3. As linhas abaixo foram removidas pois as variáveis não eram utilizadas
+  // const [popularServices, setPopularServices] = useState<ServicePopularity[]>([]); 
+  // const [professionalPerformance, setProfessionalPerformance] = useState<ProfessionalPerformance[]>([]);
   const [loading, setLoading] = useState(true);
 
   // --- Efeito para Carregar os Dados ---
@@ -48,18 +42,17 @@ export default function Dashboard() {
   }, [user]);
 
   /**
-   * 3. Orquestra todas as buscas de dados para o dashboard em paralelo.
+   * Orquestra todas as buscas de dados para o dashboard em paralelo.
    */
   const fetchDashboardData = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      // Executa todas as promessas de busca de dados simultaneamente
       const [
-        kpisData, 
-        appointmentsData, 
-        weeklyData, 
-        servicesData, 
+        kpisData,
+        appointmentsData,
+        weeklyData,
+        servicesData,
         performanceData
       ] = await Promise.all([
         fetchKPIs(),
@@ -69,13 +62,11 @@ export default function Dashboard() {
         fetchProfessionalPerformance()
       ]);
 
-      // Atualiza todos os estados de uma vez
       setKpis(kpisData);
       setTodayAppointments(appointmentsData || []);
       setWeeklyEarnings(weeklyData || []);
-      setPopularServices(servicesData || []);
-      setProfessionalPerformance(performanceData || []);
-
+      // O `setPopularServices` e `setProfessionalPerformance` poderiam ser usados aqui se necessário no futuro
+      
     } catch (error) {
       console.error('Erro ao carregar dados do dashboard:', (error as Error).message);
     } finally {
@@ -87,11 +78,7 @@ export default function Dashboard() {
 
   const fetchKPIs = async (): Promise<DashboardKPIs> => {
     if (!user) return { dailyEarnings: 0, dailyAppointments: 0, avgTicket: 0 };
-
-    // CORREÇÃO: Usa moment() para obter a data local do usuário, evitando problemas de fuso horário.
     const today = moment().format('YYYY-MM-DD');
-
-    // Busca agendamentos de hoje para calcular tudo a partir deles
     const { data: appointmentsToday, error } = await supabase
       .from('appointments')
       .select('price')
@@ -109,7 +96,6 @@ export default function Dashboard() {
 
   const fetchTodayAppointments = async (): Promise<AppointmentType[] | null> => {
      if (!user) return null;
-     // CORREÇÃO: Usa moment() para obter a data local do usuário.
      const today = moment().format('YYYY-MM-DD');
      const { data, error } = await supabase
         .from('appointments')
@@ -123,7 +109,6 @@ export default function Dashboard() {
 
   const fetchWeeklyEarnings = async (): Promise<WeeklyEarning[] | null> => {
     if (!user) return null;
-    // CORREÇÃO: Usa moment() para calcular a data de 7 dias atrás corretamente.
     const sevenDaysAgo = moment().subtract(6, 'days').format('YYYY-MM-DD');
     
     const { data, error } = await supabase
@@ -135,7 +120,6 @@ export default function Dashboard() {
 
     if (error) throw error;
 
-    // Agregação no frontend
     const earningsByDay: { [key: string]: number } = {};
     if (data) {
         for (const entry of data) {
@@ -147,7 +131,6 @@ export default function Dashboard() {
   
   const fetchPopularServices = async (): Promise<ServicePopularity[] | null> => {
       if(!user) return null;
-      // CORREÇÃO: Usa moment() para calcular a data de 30 dias atrás corretamente.
       const thirtyDaysAgo = moment().subtract(30, 'days').format('YYYY-MM-DD');
       
       const { data, error } = await supabase
@@ -158,7 +141,6 @@ export default function Dashboard() {
 
       if (error) throw error;
       
-      // Contagem no frontend
       const serviceCounts = data?.reduce((acc, { service }) => {
           acc[service] = (acc[service] || 0) + 1;
           return acc;
@@ -172,7 +154,6 @@ export default function Dashboard() {
 
   const fetchProfessionalPerformance = async (): Promise<ProfessionalPerformance[] | null> => {
       if(!user) return null;
-      // CORREÇÃO: Usa moment() para calcular a data de 30 dias atrás corretamente.
       const thirtyDaysAgo = moment().subtract(30, 'days').format('YYYY-MM-DD');
       
       const { data, error } = await supabase
@@ -183,7 +164,6 @@ export default function Dashboard() {
 
       if (error) throw error;
       
-      // Contagem no frontend
       const profCounts = data?.reduce((acc, { professional }) => {
           acc[professional] = (acc[professional] || 0) + 1;
           return acc;
@@ -195,7 +175,7 @@ export default function Dashboard() {
   };
 
 
-  // --- Funções Auxiliares (sem alterações) ---
+  // --- Funções Auxiliares ---
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-PT', {
       style: 'currency',
@@ -210,8 +190,11 @@ export default function Dashboard() {
     });
   };
 
+  // 4. CORREÇÃO: Usar a lista de clientes para encontrar o nome
   const sendWhatsAppReminder = (appointment: AppointmentType) => {
-    const message = `Olá ${appointment.client_name}! Lembrete do seu agendamento para ${appointment.service} hoje às ${formatTime(appointment.appointment_date)} com ${appointment.professional}. Até já! 😊`;
+    const client = clients.find(c => c.id === appointment.client_id);
+    const clientName = client ? client.name : 'Cliente';
+    const message = `Olá ${clientName}! Lembrete do seu agendamento para ${appointment.service} hoje às ${formatTime(appointment.appointment_date)} com ${appointment.professional}. Até já! 😊`;
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
   };
@@ -306,7 +289,8 @@ export default function Dashboard() {
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-gray-900">
-                            {formatTime(appointment.appointment_date)} - {appointment.client_name}
+                            {/* 5. CORREÇÃO: Lógica para encontrar o nome do cliente */}
+                            {formatTime(appointment.appointment_date)} - {clients.find(c => c.id === appointment.client_id)?.name || 'Cliente'}
                           </p>
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                             appointment.is_confirmed 

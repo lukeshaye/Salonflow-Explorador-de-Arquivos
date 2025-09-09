@@ -1,16 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useSupabaseAuth } from '../auth/SupabaseAuthProvider';
-import { useAppStore } from '../../shared/store';
-import Layout from '../components/Layout';
-import LoadingSpinner from '../components/LoadingSpinner';
-import ConfirmationModal from '../components/ConfirmationModal';
-import { useToastHelpers } from '../contexts/ToastContext';
-import { Package, Plus, Edit, Trash2, AlertTriangle, X, Search, XCircle } from 'lucide-react';
-import type { ProductType } from '../../shared/types';
-import { CreateProductSchema } from '../../shared/types';
-import { formatCurrency } from '../utils';
+import { useSupabaseAuth } from '@/react-app/auth/SupabaseAuthProvider';
+import { useAppStore } from '@/shared/store';
+import Layout from '@/react-app/components/Layout';
+import LoadingSpinner from '@/react-app/components/LoadingSpinner';
+import ConfirmationModal from '@/react-app/components/ConfirmationModal';
+import { useToastHelpers } from '@/react-app/contexts/ToastContext';
+import { Package, Plus, Edit, Trash2, AlertTriangle, X, Search } from 'lucide-react';
+import type { ProductType } from '@/shared/types';
+import { CreateProductSchema } from '@/shared/types';
+import { formatCurrency } from '@/react-app/utils';
 
 // --- Definição de Tipos ---
 interface ProductFormData {
@@ -35,16 +35,16 @@ const defaultFormValues: ProductFormData = {
  */
 export default function Products() {
   const { user } = useSupabaseAuth();
-  const { 
-    products, 
-    loading, 
-    fetchProducts, 
-    addProduct, 
-    updateProduct, 
-    deleteProduct 
+  const {
+    products,
+    loading,
+    fetchProducts,
+    addProduct,
+    updateProduct,
+    deleteProduct
   } = useAppStore();
   const { showSuccess, showError } = useToastHelpers();
-  
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductType | null>(null);
@@ -59,7 +59,7 @@ export default function Products() {
     formState: { errors, isSubmitting },
   } = useForm<ProductFormData>({
     resolver: zodResolver(CreateProductSchema) as any,
-    defaultValues: defaultFormValues, // MELHORIA: Definindo valores padrão
+    defaultValues: defaultFormValues,
   });
 
   useEffect(() => {
@@ -82,9 +82,11 @@ export default function Products() {
   const onSubmit = async (formData: ProductFormData) => {
     if (!user) return;
 
+    // CORREÇÃO: Garante que 'quantity' tenha um valor padrão de 0 se não for preenchido.
     const productData = {
       ...formData,
       price: Math.round(Number(formData.price) * 100),
+      quantity: formData.quantity ?? 0,
     };
 
     try {
@@ -112,7 +114,7 @@ export default function Products() {
 
   const handleDeleteConfirm = async () => {
     if (!user || !productToDelete) return;
-    
+
     setIsDeleting(true);
     try {
       await deleteProduct(productToDelete.id!);
@@ -131,7 +133,7 @@ export default function Products() {
     setIsDeleteModalOpen(false);
     setProductToDelete(null);
   };
-  
+
   // --- Funções Auxiliares ---
   const handleEditProduct = (product: ProductType) => {
     setEditingProduct(product);
@@ -177,7 +179,7 @@ export default function Products() {
           </div>
         </div>
 
-        {/* NOVO: Barra de Busca e Alerta de Erros */}
+        {/* Barra de Busca e Alerta de Erros */}
         <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="relative w-full sm:max-w-xs">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -202,8 +204,8 @@ export default function Products() {
                 {searchTerm ? 'Nenhum produto encontrado' : 'Nenhum produto'}
               </h3>
               <p className="mt-1 text-sm text-gray-500">
-                {searchTerm 
-                  ? 'Tente ajustar os termos de busca.' 
+                {searchTerm
+                  ? 'Tente ajustar os termos de busca.'
                   : 'Comece adicionando produtos ao seu catálogo.'
                 }
               </p>
@@ -237,7 +239,7 @@ export default function Products() {
                       />
                     </div>
                   )}
-                  
+
                   <div className="px-6 py-4">
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
@@ -272,7 +274,7 @@ export default function Products() {
                       <Edit className="w-4 h-4 mr-1" />
                       Editar
                     </button>
-                    
+
                     <button
                       onClick={() => handleDeleteClick(product)}
                       className="flex-1 inline-flex items-center justify-center px-3 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
@@ -415,3 +417,4 @@ export default function Products() {
     </Layout>
   );
 }
+
