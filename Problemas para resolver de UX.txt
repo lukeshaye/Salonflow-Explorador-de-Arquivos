@@ -130,3 +130,4 @@ dispatchDiscreteEvent @ react-dom_client.js?v=e03c0c44:14589
 "
 Também não salva exceções, a sessão de Configurações está toda bugada em relação a salvamentos e UX.
 Também não está dando para agendar agendamentos, não está salvando, o que me leva a ser problemas em arquivos relacionados com integração com o supabase. Mas pelo menos na Aba Agendamentos, as notificações Toats estão corretas e notificando quando acontece um erro de salvamento, notificando o usuário que foi ou não salvo os dados.
+Do painel de login precisamos tirar a parte de baixo de registre-se "Ainda não tem uma conta?Registe-se", o registro vai ser feito manualmente por mim e somente para pessoas que compraram de mim terão acesso ao dashboard, e também temos que implementar mais tarde as politicas de RLS no Supabase
