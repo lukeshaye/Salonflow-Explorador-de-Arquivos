@@ -60,7 +60,7 @@ export default function Professionals() {
         showSuccess('Profissional atualizado!', 'As alterações foram salvas com sucesso.');
       } else {
         await addProfessional(formData, user.id);
-        showSuccess('Profissional adicionado!', 'O novo profissional foi adicionado à sua equipa.');
+        showSuccess('Profissional adicionado!', 'O novo profissional foi adicionado à sua equipe.');
       }
       handleCloseModal();
     } catch (error) {
@@ -80,7 +80,7 @@ export default function Professionals() {
     setIsDeleting(true);
     try {
       await deleteProfessional(professionalToDelete.id!);
-      showSuccess('Profissional removido!', 'O profissional foi removido da sua equipa.');
+      showSuccess('Profissional removido!', 'O profissional foi removido da sua equipe.');
       setIsDeleteModalOpen(false);
       setProfessionalToDelete(null);
     } catch (error) {
@@ -124,7 +124,7 @@ export default function Professionals() {
         <div className="sm:flex sm:items-center">
           <div className="sm:flex-auto">
             <h1 className="text-3xl font-bold text-gray-900">Profissionais</h1>
-            <p className="mt-2 text-gray-600">Gerencie a sua equipa</p>
+            <p className="mt-2 text-gray-600">Gerencie a sua equipe</p>
           </div>
           <div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
             <button

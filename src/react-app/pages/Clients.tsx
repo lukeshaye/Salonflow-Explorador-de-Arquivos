@@ -119,9 +119,10 @@ export default function Clients() {
   
   const sendWhatsAppMessage = (client: ClientType) => {
     if (!client.phone) return;
-    const message = `Olá ${client.name}! Como posso ajudá-lo hoje?`;
-    const phoneNumber = client.phone.replace(/\D/g, ''); // Limpa o número
-    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+    const message = `Olá, ${client.name}! Tudo bem? Escrevo para confirmar nosso horário.`;
+    const phoneNumber = client.phone.replace(/\D/g, '');
+    // Adicionado "55" para o código do país
+    const whatsappUrl = `https://wa.me/55${phoneNumber}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
   };
 

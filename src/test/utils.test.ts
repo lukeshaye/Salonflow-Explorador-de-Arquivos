@@ -4,19 +4,20 @@ import { formatCurrency, formatDate } from '../react-app/utils';
 describe('Utils', () => {
   describe('formatCurrency', () => {
     it('should format currency correctly for positive values', () => {
-      expect(formatCurrency(12345)).toBe('123,45 €');
-      expect(formatCurrency(100000)).toBe('1 000,00 €');
-      expect(formatCurrency(0)).toBe('0,00 €');
+      // Usamos toMatch para ser flexível com espaços não separáveis (NBSP) que o Intl pode usar.
+      expect(formatCurrency(12345)).toMatch(/R\$\s?123,45/);
+      expect(formatCurrency(100000)).toMatch(/R\$\s?1.000,00/);
+      expect(formatCurrency(0)).toMatch(/R\$\s?0,00/);
     });
 
     it('should format currency correctly for negative values', () => {
-      expect(formatCurrency(-12345)).toBe('-123,45 €');
-      expect(formatCurrency(-100000)).toBe('-1 000,00 €');
+      expect(formatCurrency(-12345)).toMatch(/R\$\s?-123,45/);
+      expect(formatCurrency(-100000)).toMatch(/R\$\s?-1.000,00/);
     });
 
     it('should handle decimal values correctly', () => {
-      expect(formatCurrency(123)).toBe('1,23 €');
-      expect(formatCurrency(1)).toBe('0,01 €');
+      expect(formatCurrency(123)).toMatch(/R\$\s?1,23/);
+      expect(formatCurrency(1)).toMatch(/R\$\s?0,01/);
     });
   });
 
