@@ -14,7 +14,17 @@ import type { AppointmentType, ClientType } from '../../shared/types'; // Ajuste
 import { CreateAppointmentSchema } from '../../shared/types'; // Ajuste o caminho se necessário
 
 // --- Configuração e Tipos ---
+// Força a configuração do locale brasileiro
 moment.locale('pt-br');
+// Garante que o moment está usando o locale correto
+moment.updateLocale('pt-br', {
+  weekdays: ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'],
+  weekdaysShort: ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'],
+  weekdaysMin: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+  months: ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
+  monthsShort: ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'],
+});
+
 const localizer = momentLocalizer(moment);
 
 interface AppointmentFormData {
@@ -281,8 +291,59 @@ export default function Appointments() {
                 work_week: 'Semana de trabalho',
                 yesterday: 'Ontem',
                 tomorrow: 'Amanhã',
-                noEventsInRange: 'Nenhum agendamento neste período',
-                showMore: (total: number) => `+ Ver mais (${total})`,
+              }}
+              formats={{
+                // Formato da hora na lateral (Gutter) -> 24h
+                timeGutterFormat: 'HH:mm',
+
+                // Formato dos dias na visão "Semana" -> ex: Ter 08/10
+                dayFormat: (date, culture, localizer) => {
+                  const momentDate = moment(date);
+                  const dayAbbr = momentDate.format('ddd'); // Seg, Ter, Qua, etc.
+                  const dayMonth = momentDate.format('DD/MM');
+                  return `${dayAbbr}, ${dayMonth}`;
+                },
+
+                // Formato dos dias no cabeçalho da visão "Mês" -> ex: Seg, Ter, Qua
+                weekdayFormat: (date, culture, localizer) => {
+                  return moment(date).format('ddd');
+                },
+
+                // Formato do cabeçalho na visão "Mês" -> ex: Setembro de 2025
+                monthHeaderFormat: (date, culture, localizer) => {
+                  const momentDate = moment(date);
+                  const month = momentDate.format('MMMM'); // Setembro, Outubro, etc.
+                  const year = momentDate.format('YYYY');
+                  return `${month} de ${year}`;
+                },
+
+                // Formato do cabeçalho na visão "Dia" -> ex: terça-feira, 8 de outubro
+                dayHeaderFormat: (date, culture, localizer) => {
+                  const momentDate = moment(date);
+                  const dayName = momentDate.format('dddd'); // segunda-feira, terça-feira, etc.
+                  const day = momentDate.format('D');
+                  const month = momentDate.format('MMMM');
+                  return `${dayName}, ${day} de ${month}`;
+                },
+
+                // Formato do cabeçalho que mostra o intervalo de dias -> ex: 07 - 13 de Setembro
+                dayRangeHeaderFormat: ({ start, end }, culture, localizer) => {
+                  const startMoment = moment(start);
+                  const endMoment = moment(end);
+                  const startDay = startMoment.format('DD');
+                  const endDay = endMoment.format('DD');
+                  const endMonth = endMoment.format('MMMM');
+                  const endYear = endMoment.format('YYYY');
+                  return `${startDay} - ${endDay} de ${endMonth} de ${endYear}`;
+                },
+                  
+                // Formato da hora na visão "Agenda"
+                agendaTimeFormat: 'HH:mm',
+                agendaTimeRangeFormat: ({ start, end }, culture, localizer) => {
+                  const startTime = moment(start).format('HH:mm');
+                  const endTime = moment(end).format('HH:mm');
+                  return `${startTime} – ${endTime}`;
+                },
               }}
               min={moment().startOf('day').add(8, 'hours').toDate()}
               max={moment().startOf('day').add(20, 'hours').toDate()}
